@@ -1,14 +1,14 @@
 {
    "url": "https://in.bookmyshow.com/explore/movies-bengaluru?languages=tamil",
-   "movie_name": "Kingdom",
+   "movie_name": "Coolie",
    "check_interval": 300,
    "email": {
        "enabled": true,
        "smtp_server": "smtp.gmail.com",
        "smtp_port": 587,
-       "sender_email": "your-email@gmail.com",
-       "sender_password": "your-app-password",
-       "recipient_emails": ["recipient1@gmail.com", "recipient2@gmail.com", "recipient3@gmail.com"]
+       "sender_email": "manojthiyagarajan29@gmail.com",
+       "sender_password": "lhbysfenjhmjurvn",
+       "recipient_emails": ["manojthiyagarajan29@gmail.com", "drtechietech@gmail.com"]
    },
    "webhook": {
        "enabled": false,
