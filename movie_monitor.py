@@ -1,42 +1,29 @@
 #!/usr/bin/env python3
 """
-BookMyShow Movie Monitor
+BookMyShow Movie Monitor with Playwright
 Monitors BookMyShow for specific movie availability and sends notifications.
 """
 
-import requests
 import time
 import smtplib
 import logging
 from datetime import datetime
-try:
-    from email.mime.text import MimeText
-    from email.mime.multipart import MimeMultipart
-except ImportError:
-    from email.MIMEText import MIMEText as MimeText
-    from email.MIMEMultipart import MIMEMultipart as MimeMultipart
-from bs4 import BeautifulSoup
+from email.mime.text import MIMEText as MimeText
+from email.mime.multipart import MIMEMultipart as MimeMultipart
 from typing import List, Optional
 import json
 import os
 import sys
+import random
+from playwright.sync_api import sync_playwright, Browser, Page
 
 class MovieMonitor:
     def __init__(self, config_file: str = "config.json"):
         """Initialize the movie monitor with configuration."""
         self.config = self.load_config(config_file)
         self.setup_logging()
-        self.session = requests.Session()
-        
-        # Set up session headers to mimic a real browser
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-        })
+        self.playwright = None
+        self.browser = None
         
         logging.info("Movie Monitor initialized successfully")
 
@@ -114,40 +101,127 @@ class MovieMonitor:
             ]
         )
 
+    def setup_browser(self):
+        """Initialize Playwright browser."""
+        try:
+            self.playwright = sync_playwright().start()
+            
+            # Launch browser with stealth settings to bypass Cloudflare
+            self.browser = self.playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-dev-shm-usage',
+                    '--no-first-run',
+                    '--disable-extensions',
+                    '--disable-default-apps',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+                ]
+            )
+            
+            logging.info("Browser initialized successfully")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to initialize browser: {e}")
+            return False
+
+    def close_browser(self):
+        """Close browser and cleanup."""
+        try:
+            if self.browser:
+                self.browser.close()
+            if self.playwright:
+                self.playwright.stop()
+            logging.info("Browser closed successfully")
+        except Exception as e:
+            logging.warning(f"Error closing browser: {e}")
+
     def check_movie_availability(self) -> bool:
         """Check if the target movie is available on BookMyShow."""
+        if not self.setup_browser():
+            return False
+            
         try:
+            # Create new page with realistic settings
+            page = self.browser.new_page()
+            
+            # Set viewport and stealth headers
+            page.set_viewport_size({"width": 1920, "height": 1080})
+            
+            # Add stealth JavaScript to hide automation
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+                
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                });
+                
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                });
+                
+                window.chrome = {
+                    runtime: {},
+                };
+            """)
+            
+            page.set_extra_http_headers({
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Cache-Control": "max-age=0",
+                "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Upgrade-Insecure-Requests": "1",
+            })
+            
             logging.info(f"Checking movie availability at {self.config['url']}")
-            response = self.session.get(self.config["url"], timeout=30)
-            response.raise_for_status()
             
-            soup = BeautifulSoup(response.content, 'html.parser')
+            # Navigate with realistic timing
+            page.goto(self.config["url"], wait_until="domcontentloaded", timeout=60000)
             
-            # Find all movie title divs with the specific class
-            movie_divs = soup.find_all('div', class_='sc-7o7nez-0 elfplV')
+            # Wait for content to load
+            page.wait_for_timeout(random.randint(3000, 6000))
             
-            if not movie_divs:
-                logging.warning("No movie titles found - page structure might have changed")
-                return False
+            # Wait for movie elements to appear
+            page.wait_for_selector('.sc-7o7nez-0.elfplV', timeout=30000)
             
-            # Check if any movie title contains our target movie
-            movies_found = []
-            for div in movie_divs:
-                movie_title = div.get_text(strip=True)
-                movies_found.append(movie_title)
+            # Find all movie title elements
+            movie_elements = page.query_selector_all('.sc-7o7nez-0.elfplV')
+            
+            movie_found = False
+            movies_list = []
+            
+            for element in movie_elements:
+                movie_title = element.text_content().strip()
+                movies_list.append(movie_title)
                 if self.config["movie_name"].lower() in movie_title.lower():
                     logging.info(f"Found target movie: {movie_title}")
-                    return True
+                    movie_found = True
             
-            logging.info(f"Movie '{self.config['movie_name']}' not found. Found {len(movie_divs)} movies: {', '.join(movies_found[:5])}...")
-            return False
+            logging.info(f"Found {len(movies_list)} movies: {', '.join(movies_list[:5])}...")
             
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Request error: {e}")
-            return False
+            page.close()
+            return movie_found
+            
         except Exception as e:
-            logging.error(f"Unexpected error: {e}")
+            logging.error(f"Error checking movie availability: {e}")
             return False
+        finally:
+            self.close_browser()
 
     def send_email_notification(self):
         """Send email notification when movie is found."""
@@ -200,8 +274,9 @@ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             return
             
         try:
+            import requests
             payload = {
-                "content": f"🎬 **Movie Alert!** \n\nThe movie **{self.config['movie_name']}** is now available for booking!\n\nBook here: {self.config['url']}"
+                "content": f"🎬 **Movie Alert!** \\n\\nThe movie **{self.config['movie_name']}** is now available for booking!\\n\\nBook here: {self.config['url']}"
             }
             
             response = requests.post(self.config["webhook"]["url"], json=payload, timeout=10)
@@ -231,7 +306,7 @@ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         logging.info(f"Starting movie monitor for '{self.config['movie_name']}'")
         logging.info(f"Check interval: {self.config['check_interval']} seconds")
         
-        print(f"🎬 Movie Monitor Started")
+        print(f"🎬 Movie Monitor Started (Playwright)")
         print(f"Monitoring: {self.config['movie_name']}")
         print(f"URL: {self.config['url']}")
         print(f"Check interval: {self.config['check_interval']} seconds")
@@ -258,6 +333,8 @@ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         except Exception as e:
             logging.error(f"Unexpected error in main loop: {e}")
             raise
+        finally:
+            self.close_browser()
 
 def main():
     """Main function to run the movie monitor."""
