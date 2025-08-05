@@ -8,7 +8,7 @@
        "smtp_port": 587,
        "sender_email": "manojthiyagarajan29@gmail.com",
        "sender_password": "lhbysfenjhmjurvn",
-       "recipient_emails": ["manojthiyagarajan29@gmail.com", "drtechietech@gmail.com"]
+       "recipient_emails": ["manojthiyagarajan29@gmail.com", "drtechietech@gmail.com","ashwathsibi@gmail.com"]
    },
    "webhook": {
        "enabled": false,
