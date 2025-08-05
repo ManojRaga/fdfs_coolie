@@ -9,8 +9,12 @@ import time
 import smtplib
 import logging
 from datetime import datetime
-from email.mime.text import MimeText
-from email.mime.multipart import MimeMultipart
+try:
+    from email.mime.text import MimeText
+    from email.mime.multipart import MimeMultipart
+except ImportError:
+    from email.MIMEText import MIMEText as MimeText
+    from email.MIMEMultipart import MIMEMultipart as MimeMultipart
 from bs4 import BeautifulSoup
 from typing import List, Optional
 import json
