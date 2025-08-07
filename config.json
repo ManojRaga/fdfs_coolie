@@ -6,9 +6,9 @@
        "enabled": true,
        "smtp_server": "smtp.gmail.com",
        "smtp_port": 587,
-       "sender_email": "manojthiyagarajan29@gmail.com",
-       "sender_password": "lhbysfenjhmjurvn",
-       "recipient_emails": ["manojthiyagarajan29@gmail.com", "drtechietech@gmail.com","ashwathsibi@gmail.com","shyamsundarpb@gmail.com"]
+       "sender_email": "*************************",
+       "sender_password": "*******************",
+       "recipient_emails": ["*****************", "******************","*********************","*******************"]
    },
    "webhook": {
        "enabled": false,
@@ -16,8 +16,8 @@
    },
    "telegram": {
        "enabled": true,
-       "bot_token": "8248412638:AAGCVSuC82EAFHob23y3Uw2el-IqUQhj1wc",
-       "chat_id": "-4959630549"
+       "bot_token": "*************************",
+       "chat_id": "*************************"
    },
    "logging": {
        "level": "INFO",
