@@ -54,6 +54,11 @@ class MovieMonitor:
                 "enabled": False,
                 "url": os.getenv("WEBHOOK_URL", "")
             },
+            "telegram": {
+                "enabled": True,
+                "bot_token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
+                "chat_id": os.getenv("TELEGRAM_CHAT_ID", "")
+            },
             "logging": {
                 "level": "INFO",
                 "file": "movie_monitor.log"
@@ -68,6 +73,8 @@ class MovieMonitor:
         if os.getenv("WEBHOOK_URL"):
             default_config["webhook"]["enabled"] = True
             default_config["webhook"]["url"] = os.getenv("WEBHOOK_URL")
+        if os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID"):
+            default_config["telegram"]["enabled"] = True
         
         if os.path.exists(config_file):
             try:
@@ -287,12 +294,53 @@ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         except Exception as e:
             logging.error(f"Failed to send webhook notification: {e}")
 
+    def send_telegram_notification(self):
+        """Send Telegram bot notification."""
+        if not self.config["telegram"]["enabled"]:
+            return
+            
+        try:
+            bot_token = self.config["telegram"]["bot_token"]
+            chat_id = self.config["telegram"]["chat_id"]
+            
+            if not bot_token or not chat_id:
+                logging.warning("Telegram configuration incomplete - skipping Telegram notification")
+                return
+            
+            import requests
+            
+            message = f"""🎬 *Movie Alert!*
+
+The movie *{self.config['movie_name']}* is now available for booking on BookMyShow!
+
+📅 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🎫 [Book tickets here]({self.config['url']})
+
+🤖 Movie Monitor"""
+            
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": message,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": False
+            }
+            
+            response = requests.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+            
+            logging.info("Telegram notification sent successfully")
+            
+        except Exception as e:
+            logging.error(f"Failed to send Telegram notification: {e}")
+
     def notify_movie_found(self):
         """Send all configured notifications when movie is found."""
         logging.info(f"🎉 MOVIE FOUND: {self.config['movie_name']} is available!")
         
         self.send_email_notification()
         self.send_webhook_notification()
+        self.send_telegram_notification()
         
         # Print to console as well
         print(f"\n{'='*60}")

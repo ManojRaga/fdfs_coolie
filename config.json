@@ -14,6 +14,11 @@
        "enabled": false,
        "url": ""
    },
+   "telegram": {
+       "enabled": true,
+       "bot_token": "8248412638:AAGCVSuC82EAFHob23y3Uw2el-IqUQhj1wc",
+       "chat_id": "-4959630549"
+   },
    "logging": {
        "level": "INFO",
        "file": "movie_monitor.log"
