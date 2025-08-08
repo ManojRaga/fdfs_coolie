@@ -108,15 +108,15 @@ class MovieMonitor:
             ]
         )
 
-    def setup_browser(self):
-        """Initialize Playwright browser."""
+    def setup_browser(self, proxy=None):
+        """Initialize Playwright browser with optional proxy."""
         try:
             self.playwright = sync_playwright().start()
             
-            # Launch browser with stealth settings to bypass Cloudflare
-            self.browser = self.playwright.chromium.launch(
-                headless=True,
-                args=[
+            # Browser launch options
+            launch_options = {
+                "headless": True,
+                "args": [
                     '--no-sandbox',
                     '--disable-blink-features=AutomationControlled',
                     '--disable-web-security',
@@ -128,9 +128,26 @@ class MovieMonitor:
                     '--disable-background-timer-throttling',
                     '--disable-backgrounding-occluded-windows',
                     '--disable-renderer-backgrounding',
-                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+                    '--disable-ipc-flooding-protection',
+                    '--disable-blink-features=AutomationControlled',
+                    '--exclude-switches=enable-automation',
+                    '--disable-client-side-phishing-detection',
+                    '--disable-sync',
+                    '--metrics-recording-only',
+                    '--no-report-upload',
+                    '--disable-features=TranslateUI',
+                    '--disable-features=BlinkGenPropertyTrees',
+                    '--disable-features=VizDisplayCompositor',
+                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
                 ]
-            )
+            }
+            
+            # Add proxy if provided
+            if proxy:
+                launch_options["proxy"] = {"server": proxy}
+                logging.info(f"Using proxy: {proxy}")
+            
+            self.browser = self.playwright.chromium.launch(**launch_options)
             
             logging.info("Browser initialized successfully")
             return True
@@ -150,9 +167,18 @@ class MovieMonitor:
         except Exception as e:
             logging.warning(f"Error closing browser: {e}")
 
-    def check_movie_availability(self) -> bool:
+    def check_movie_availability(self, retry_count=0) -> bool:
         """Check if the target movie is available on BookMyShow."""
-        if not self.setup_browser():
+        proxy_list = [
+            None,  # No proxy first
+            # Add your proxy servers here if available
+            # "http://proxy1:port",
+            # "http://proxy2:port",
+        ]
+        
+        proxy = proxy_list[retry_count % len(proxy_list)] if retry_count < len(proxy_list) else None
+        
+        if not self.setup_browser(proxy):
             return False
             
         try:
@@ -162,23 +188,71 @@ class MovieMonitor:
             # Set viewport and stealth headers
             page.set_viewport_size({"width": 1920, "height": 1080})
             
-            # Add stealth JavaScript to hide automation
+            # Enhanced stealth JavaScript to hide automation
             page.add_init_script("""
+                // Remove webdriver property
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined,
                 });
                 
+                // Mock plugins
                 Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5],
+                    get: () => [
+                        {name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer'},
+                        {name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai'},
+                        {name: 'Native Client', filename: 'internal-nacl-plugin'}
+                    ],
                 });
                 
+                // Set realistic language preferences
                 Object.defineProperty(navigator, 'languages', {
                     get: () => ['en-US', 'en'],
                 });
                 
+                // Mock chrome object
                 window.chrome = {
                     runtime: {},
+                    loadTimes: function() {},
+                    csi: function() {},
+                    app: {}
                 };
+                
+                // Mock permissions
+                Object.defineProperty(navigator, 'permissions', {
+                    get: () => ({
+                        query: () => Promise.resolve({state: 'granted'})
+                    }),
+                });
+                
+                // Override getContext to hide canvas fingerprinting
+                const getContext = HTMLCanvasElement.prototype.getContext;
+                HTMLCanvasElement.prototype.getContext = function(type) {
+                    if (type === '2d') {
+                        const context = getContext.apply(this, arguments);
+                        const getImageData = context.getImageData;
+                        context.getImageData = function() {
+                            const imageData = getImageData.apply(this, arguments);
+                            for (let i = 0; i < imageData.data.length; i += 4) {
+                                imageData.data[i] += Math.floor(Math.random() * 10) - 5;
+                                imageData.data[i + 1] += Math.floor(Math.random() * 10) - 5;
+                                imageData.data[i + 2] += Math.floor(Math.random() * 10) - 5;
+                            }
+                            return imageData;
+                        };
+                        return context;
+                    }
+                    return getContext.apply(this, arguments);
+                };
+                
+                // Mock battery API
+                Object.defineProperty(navigator, 'getBattery', {
+                    get: () => () => Promise.resolve({
+                        charging: true,
+                        chargingTime: Infinity,
+                        dischargingTime: Infinity,
+                        level: 1
+                    }),
+                });
             """)
             
             page.set_extra_http_headers({
@@ -197,14 +271,28 @@ class MovieMonitor:
             
             logging.info(f"Checking movie availability at {self.config['url']}")
             
+            # Simulate human-like mouse movement before navigation
+            page.mouse.move(random.randint(100, 500), random.randint(100, 500))
+            page.wait_for_timeout(random.randint(500, 1500))
+            
             # Navigate with realistic timing
             page.goto(self.config["url"], wait_until="domcontentloaded", timeout=60000)
             
-            # Wait for content to load
+            # Human-like behavior: random scrolling and mouse movements
+            page.wait_for_timeout(random.randint(2000, 4000))
+            
+            # Scroll down a bit like a human would
+            page.mouse.wheel(0, random.randint(100, 400))
+            page.wait_for_timeout(random.randint(1000, 2000))
+            
+            # Move mouse randomly
+            for _ in range(random.randint(2, 4)):
+                page.mouse.move(random.randint(100, 1800), random.randint(100, 1000))
+                page.wait_for_timeout(random.randint(300, 800))
+            
+            # Wait for content to load with random timing
             page.wait_for_timeout(random.randint(3000, 6000))
-
-            logging.info(f"page response: {page.content()}")
-
+            
             # Wait for movie elements to appear
             page.wait_for_selector('.sc-7o7nez-0.elfplV', timeout=30000)
             
@@ -228,6 +316,9 @@ class MovieMonitor:
             
         except Exception as e:
             logging.error(f"Error checking movie availability: {e}")
+            # If we get blocked, try with different approach
+            if "cloudflare" in str(e).lower() or "blocked" in str(e).lower():
+                logging.warning("Potential Cloudflare block detected, will retry with different strategy")
             return False
         finally:
             self.close_browser()
@@ -367,7 +458,21 @@ The movie *{self.config['movie_name']}* is now available for booking on BookMySh
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 print(f"[{current_time}] Checking movie availability...")
                 
-                if self.check_movie_availability():
+                found = False
+                max_retries = 3
+                
+                for retry in range(max_retries):
+                    try:
+                        found = self.check_movie_availability(retry)
+                        if found:
+                            break
+                    except Exception as e:
+                        logging.warning(f"Retry {retry + 1}/{max_retries} failed: {e}")
+                        if retry < max_retries - 1:
+                            # Wait longer between retries
+                            time.sleep(random.randint(30, 90))
+                
+                if found:
                     self.notify_movie_found()
                     # Stop monitoring after finding the movie
                     logging.info("Movie found - stopping monitor")
