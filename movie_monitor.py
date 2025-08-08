@@ -202,7 +202,9 @@ class MovieMonitor:
             
             # Wait for content to load
             page.wait_for_timeout(random.randint(3000, 6000))
-            
+
+            logging.info(f"page response: {page.content()}")
+
             # Wait for movie elements to appear
             page.wait_for_selector('.sc-7o7nez-0.elfplV', timeout=30000)
             
