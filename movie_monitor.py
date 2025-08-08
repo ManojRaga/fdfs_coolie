@@ -48,6 +48,10 @@ class MovieMonitor:
             {"width": 1600, "height": 900},
             {"width": 1920, "height": 1200}
         ]
+
+        # Track last admin notification time to prevent spam
+        self.last_admin_notification = 0
+        self.admin_notification_cooldown = 3600 # 1 hour cooldown
         
         logging.info("Movie Monitor initialized successfully")
 
@@ -507,6 +511,76 @@ The movie *{self.config['movie_name']}* is now available for booking on BookMySh
         except Exception as e:
             logging.error(f"Failed to send Telegram notification: {e}")
 
+    def send_admin_alert(self, error_message: str, retry_count: int = 0):
+       """Send admin notification when script is blocked or failing."""
+       import time
+      
+       # Check cooldown to prevent spam
+       current_time = time.time()
+       if current_time - self.last_admin_notification < self.admin_notification_cooldown:
+           logging.info("Admin notification cooldown active - skipping alert")
+           return
+      
+       try:
+           sender_email = self.config["email"]["sender_email"]
+           sender_password = self.config["email"]["sender_password"]
+          
+           # Use first recipient email as admin email, or fallback to sender
+           admin_email = (self.config["email"]["recipient_emails"][0]
+                         if self.config["email"]["recipient_emails"]
+                         else sender_email)
+          
+           if not all([sender_email, sender_password, admin_email]):
+               logging.warning("Email configuration incomplete - skipping admin alert")
+               return
+          
+           subject = f"🚨 Movie Monitor Alert: Script Issues Detected"
+           body = f"""
+ALERT: Movie Monitor is experiencing blocking/timeout issues
+
+Error Details:
+- Movie: {self.config['movie_name']}
+- URL: {self.config['url']}
+- Error: {error_message}
+- Retry Attempt: {retry_count + 1}
+- Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+This appears to be a blocking/timeout issue. You may need to:
+1. Update the anti-detection measures
+2. Add new proxy servers
+3. Adjust the user agent or browser settings
+4. Check if the website structure has changed
+
+Next alert will be sent after {self.admin_notification_cooldown // 3600} hour(s) to prevent spam.
+
+Movie Monitor Admin Alert System
+           """
+          
+           server = smtplib.SMTP(self.config["email"]["smtp_server"], self.config["email"]["smtp_port"])
+           server.starttls()
+           server.login(sender_email, sender_password)
+          
+           from email.mime.text import MIMEText as MimeText
+           from email.mime.multipart import MIMEMultipart as MimeMultipart
+          
+           message = MimeMultipart()
+           message["From"] = sender_email
+           message["To"] = admin_email
+           message["Subject"] = subject
+           message.attach(MimeText(body, "plain"))
+          
+           text = message.as_string()
+           server.sendmail(sender_email, admin_email, text)
+           server.quit()
+          
+           # Update last notification time
+           self.last_admin_notification = current_time
+          
+           logging.info(f"Admin alert sent to {admin_email}")
+          
+       except Exception as e:
+           logging.error(f"Failed to send admin alert: {e}")
+
     def notify_movie_found(self):
         """Send all configured notifications when movie is found."""
         logging.info(f"🎉 MOVIE FOUND: {self.config['movie_name']} is available!")
@@ -554,9 +628,17 @@ The movie *{self.config['movie_name']}* is now available for booking on BookMySh
                         error_msg = str(e).lower()
                         if "cloudflare" in error_msg or "blocked" in error_msg or "timeout" in error_msg:
                             logging.warning(f"Retry {retry + 1}/{max_retries} due to blocking/timeout: {e}")
+
+                            # Send admin alert on first blocking attempt
+                            if retry == 0:
+                                self.send_admin_alert(str(e), retry)
+
                             if retry < max_retries - 1:
                                 # Wait longer between retries
                                 time.sleep(random.randint(30, 90))
+                            else:
+                                # Final attempt failed - send another alert if cooldown passed
+                                self.send_admin_alert(f"All {max_retries} attempts failed. Last error: {str(e)}", retry)
                         else:
                             # Other errors - don't retry
                             logging.error(f"Error checking movie: {e}")
