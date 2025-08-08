@@ -24,6 +24,30 @@ class MovieMonitor:
         self.setup_logging()
         self.playwright = None
         self.browser = None
+        self.current_user_agent_index = 0
+        self.current_viewport_index = 0
+
+        # Pool of realistic user agents
+        self.user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        ]
+
+        # Pool of realistic viewport sizes
+        self.viewports = [
+            {"width": 1920, "height": 1080},
+            {"width": 1366, "height": 768},
+            {"width": 1536, "height": 864},
+            {"width": 1440, "height": 900},
+            {"width": 1280, "height": 720},
+            {"width": 1600, "height": 900},
+            {"width": 1920, "height": 1200}
+        ]
         
         logging.info("Movie Monitor initialized successfully")
 
@@ -108,53 +132,99 @@ class MovieMonitor:
             ]
         )
 
-    def setup_browser(self, proxy=None):
-        """Initialize Playwright browser with optional proxy."""
-        try:
-            self.playwright = sync_playwright().start()
-            
-            # Browser launch options
-            launch_options = {
-                "headless": True,
-                "args": [
-                    '--no-sandbox',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    '--disable-dev-shm-usage',
-                    '--no-first-run',
-                    '--disable-extensions',
-                    '--disable-default-apps',
-                    '--disable-background-timer-throttling',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-renderer-backgrounding',
-                    '--disable-ipc-flooding-protection',
-                    '--disable-blink-features=AutomationControlled',
-                    '--exclude-switches=enable-automation',
-                    '--disable-client-side-phishing-detection',
-                    '--disable-sync',
-                    '--metrics-recording-only',
-                    '--no-report-upload',
-                    '--disable-features=TranslateUI',
-                    '--disable-features=BlinkGenPropertyTrees',
-                    '--disable-features=VizDisplayCompositor',
-                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-                ]
-            }
-            
-            # Add proxy if provided
-            if proxy:
-                launch_options["proxy"] = {"server": proxy}
-                logging.info(f"Using proxy: {proxy}")
-            
-            self.browser = self.playwright.chromium.launch(**launch_options)
-            
-            logging.info("Browser initialized successfully")
-            return True
-            
-        except Exception as e:
-            logging.error(f"Failed to initialize browser: {e}")
-            return False
+    def get_next_user_agent(self):
+       """Get next user agent from rotation pool."""
+       user_agent = self.user_agents[self.current_user_agent_index]
+       self.current_user_agent_index = (self.current_user_agent_index + 1) % len(self.user_agents)
+       return user_agent
+  
+    def get_next_viewport(self):
+        """Get next viewport from rotation pool."""
+        viewport = self.viewports[self.current_viewport_index]
+        self.current_viewport_index = (self.current_viewport_index + 1) % len(self.viewports)
+        return viewport
+    
+    def get_random_headers(self):
+        """Generate randomized browser headers."""
+        accept_languages = [
+            "en-US,en;q=0.9",
+            "en-US,en;q=0.9,es;q=0.8",
+            "en-GB,en;q=0.9",
+            "en-US,en;q=0.8,fr;q=0.7"
+        ]
+        
+        platforms = [
+            '"Windows"',
+            '"macOS"',
+            '"Linux"'
+        ]
+        
+        return {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": random.choice(accept_languages),
+            "Accept-Encoding": "gzip, deflate, br",
+            "Cache-Control": "max-age=0",
+            "Sec-Ch-Ua": f'"Not A(Brand";v="99", "Google Chrome";v="{random.randint(120, 131)}", "Chromium";v="{random.randint(120, 131)}"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": random.choice(platforms),
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Upgrade-Insecure-Requests": "1",
+        }
+
+    def setup_browser(self, proxy=None, retry_count=0):
+       """Initialize Playwright browser with optional proxy and adaptive settings."""
+       try:
+           self.playwright = sync_playwright().start()
+          
+           # Get dynamic user agent for this retry
+           current_user_agent = self.get_next_user_agent()
+          
+           # Browser launch options with dynamic user agent
+           launch_options = {
+               "headless": True,
+               "args": [
+                   '--no-sandbox',
+                   '--disable-blink-features=AutomationControlled',
+                   '--disable-web-security',
+                   '--disable-features=VizDisplayCompositor',
+                   '--disable-dev-shm-usage',
+                   '--no-first-run',
+                   '--disable-extensions',
+                   '--disable-default-apps',
+                   '--disable-background-timer-throttling',
+                   '--disable-backgrounding-occluded-windows',
+                   '--disable-renderer-backgrounding',
+                   '--disable-ipc-flooding-protection',
+                   '--disable-blink-features=AutomationControlled',
+                   '--exclude-switches=enable-automation',
+                   '--disable-client-side-phishing-detection',
+                   '--disable-sync',
+                   '--metrics-recording-only',
+                   '--no-report-upload',
+                   '--disable-features=TranslateUI',
+                   '--disable-features=BlinkGenPropertyTrees',
+                   '--disable-features=VizDisplayCompositor',
+                   f'--user-agent={current_user_agent}'
+               ]
+           }
+          
+           # Add proxy if provided
+           if proxy:
+               launch_options["proxy"] = {"server": proxy}
+               logging.info(f"Using proxy: {proxy}")
+          
+           logging.info(f"Using User Agent (attempt {retry_count + 1}): {current_user_agent[:80]}...")
+          
+           self.browser = self.playwright.chromium.launch(**launch_options)
+          
+           logging.info("Browser initialized successfully")
+           return True
+          
+       except Exception as e:
+           logging.error(f"Failed to initialize browser: {e}")
+           return False
 
     def close_browser(self):
         """Close browser and cleanup."""
@@ -178,15 +248,17 @@ class MovieMonitor:
         
         proxy = proxy_list[retry_count % len(proxy_list)] if retry_count < len(proxy_list) else None
         
-        if not self.setup_browser(proxy):
+        if not self.setup_browser(proxy, retry_count):
             return False
             
         try:
             # Create new page with realistic settings
             page = self.browser.new_page()
             
-            # Set viewport and stealth headers
-            page.set_viewport_size({"width": 1920, "height": 1080})
+            # Set dynamic viewport size
+            viewport = self.get_next_viewport()
+            page.set_viewport_size(viewport)
+            logging.info(f"Using viewport: {viewport['width']}x{viewport['height']}")
             
             # Enhanced stealth JavaScript to hide automation
             page.add_init_script("""
@@ -255,43 +327,51 @@ class MovieMonitor:
                 });
             """)
             
-            page.set_extra_http_headers({
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Cache-Control": "max-age=0",
-                "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-                "Sec-Ch-Ua-Mobile": "?0",
-                "Sec-Ch-Ua-Platform": '"Windows"',
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Upgrade-Insecure-Requests": "1",
-            })
+            # Set randomized headers
+            page.set_extra_http_headers(self.get_random_headers())
             
             logging.info(f"Checking movie availability at {self.config['url']}")
+
+            # Adaptive timing based on retry count (more human-like on retries)
+            base_delay_multiplier = 1 + (retry_count * 0.5) # Slower on retries
             
             # Simulate human-like mouse movement before navigation
             page.mouse.move(random.randint(100, 500), random.randint(100, 500))
-            page.wait_for_timeout(random.randint(500, 1500))
+            page.wait_for_timeout(int(random.randint(500, 1500) * base_delay_multiplier))
             
             # Navigate with realistic timing
             page.goto(self.config["url"], wait_until="domcontentloaded", timeout=60000)
             
-            # Human-like behavior: random scrolling and mouse movements
-            page.wait_for_timeout(random.randint(2000, 4000))
+            # Human-like behavior: random scrolling and mouse movements (more on retries)
+            page.wait_for_timeout(int(random.randint(2000, 4000) * base_delay_multiplier))
             
-            # Scroll down a bit like a human would
-            page.mouse.wheel(0, random.randint(100, 400))
-            page.wait_for_timeout(random.randint(1000, 2000))
+            # More realistic mouse behavior patterns on retries
+            if retry_count > 0:
+                # Simulate reading behavior - scroll and pause
+                for _ in range(random.randint(2, 4)):
+                    page.mouse.wheel(0, random.randint(50, 200))
+                    page.wait_for_timeout(random.randint(800, 2000))
+                
+                # Random mouse movements like a real user browsing
+                for _ in range(random.randint(3, 6)):
+                    viewport_width = viewport["width"]
+                    viewport_height = viewport["height"]
+                    page.mouse.move(
+                        random.randint(100, viewport_width - 100),
+                        random.randint(100, viewport_height - 100)
+                    )
+                    page.wait_for_timeout(random.randint(200, 600))
+            else:
+                # Standard behavior for first attempt
+                page.mouse.wheel(0, random.randint(100, 400))
+                page.wait_for_timeout(random.randint(1000, 2000))
+                
+                for _ in range(random.randint(2, 4)):
+                    page.mouse.move(random.randint(100, 1800), random.randint(100, 1000))
+                    page.wait_for_timeout(random.randint(300, 800))
             
-            # Move mouse randomly
-            for _ in range(random.randint(2, 4)):
-                page.mouse.move(random.randint(100, 1800), random.randint(100, 1000))
-                page.wait_for_timeout(random.randint(300, 800))
-            
-            # Wait for content to load with random timing
-            page.wait_for_timeout(random.randint(3000, 6000))
+            # Wait for content to load with adaptive timing
+            page.wait_for_timeout(int(random.randint(3000, 6000) * base_delay_multiplier))
             
             # Wait for movie elements to appear
             page.wait_for_selector('.sc-7o7nez-0.elfplV', timeout=30000)
