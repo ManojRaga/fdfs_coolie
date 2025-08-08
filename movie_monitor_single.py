@@ -13,22 +13,33 @@ def main():
     print(f"Checking for movie: {monitor.config['movie_name']}")
     print(f"URL: {monitor.config['url']}")
     
-    # Try multiple times with different strategies
+    # Try multiple times only if blocked by Cloudflare
     max_retries = 3
     for retry in range(max_retries):
         try:
-            if monitor.check_movie_availability(retry):
+            result = monitor.check_movie_availability(retry)
+            if result is True:
                 monitor.notify_movie_found()
                 print("Movie found! Notifications sent.")
                 return True
+            elif result is False:
+                # Movie not found but page loaded successfully - no need to retry
+                print("Movie not found yet.")
+                return False
         except Exception as e:
-            print(f"Retry {retry + 1}/{max_retries} failed: {e}")
-            if retry < max_retries - 1:
-                import time
-                import random
-                time.sleep(random.randint(10, 30))
+            error_msg = str(e).lower()
+            if "cloudflare" in error_msg or "blocked" in error_msg or "timeout" in error_msg:
+                print(f"Retry {retry + 1}/{max_retries} due to blocking/timeout: {e}")
+                if retry < max_retries - 1:
+                    import time
+                    import random
+                    time.sleep(random.randint(10, 30))
+            else:
+                # Other errors - don't retry
+                print(f"Error checking movie: {e}")
+                return False
     
-    print("Movie not found yet.")
+    print("Failed to check movie after retries.")
     return False
 
 if __name__ == "__main__":

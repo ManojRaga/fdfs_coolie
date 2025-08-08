@@ -463,14 +463,24 @@ The movie *{self.config['movie_name']}* is now available for booking on BookMySh
                 
                 for retry in range(max_retries):
                     try:
-                        found = self.check_movie_availability(retry)
-                        if found:
+                        result = self.check_movie_availability(retry)
+                        if result is True:
+                            found = True
+                            break
+                        elif result is False:
+                            # Movie not found but page loaded successfully - no need to retry
                             break
                     except Exception as e:
-                        logging.warning(f"Retry {retry + 1}/{max_retries} failed: {e}")
-                        if retry < max_retries - 1:
-                            # Wait longer between retries
-                            time.sleep(random.randint(30, 90))
+                        error_msg = str(e).lower()
+                        if "cloudflare" in error_msg or "blocked" in error_msg or "timeout" in error_msg:
+                            logging.warning(f"Retry {retry + 1}/{max_retries} due to blocking/timeout: {e}")
+                            if retry < max_retries - 1:
+                                # Wait longer between retries
+                                time.sleep(random.randint(30, 90))
+                        else:
+                            # Other errors - don't retry
+                            logging.error(f"Error checking movie: {e}")
+                            break
                 
                 if found:
                     self.notify_movie_found()
